@@ -1,64 +1,40 @@
-#!/bin/bash
-
-# Function to find bugs
-find_bugs() {
-    local url=$1
-    echo "Finding bugs for $url..."
-    
-    # Use curl to fetch the webpage
-    curl -s "$url" > webpage.html
-    
-    # Parse the HTML to find potential bugs
-    grep -E "<script>|<img>|<iframe>" webpage.html > bugs.txt
-    
-    echo "Bugs found:"
-    cat bugs.txt
+####################
+# Main entry point #
+####################
+show_help(){
+  cat <<-HELP
+Usage: $0 -u <domain|url> | -f <targets_file>
+Options:
+  -u <url>        Single target (domain or URL)
+  -f <file>       File with targets (one per line)
+  -w <webhook>    Optional: webhook URL to POST JSON reports
+  -t <threads>    Concurrency for tools that accept it (default $THREADS)
+  -h              Show this help
+HELP
 }
 
-# Function to find assets
-find_assets() {
-    local url=$1
-    echo "Finding assets for $url..."
-    
-    # Use wget to download the webpage
-    wget -q "$url"
-    
-    # Find all image files in the downloaded directory
-    find . -type f -name "*.jpg" -o -name "*.png" -o -name "*.gif" > assets.txt
-    
-    echo "Assets found:"
-    cat assets.txt
-}
+if [[ $# -eq 0 ]]; then
+  show_help
+  exit 1
+fi
 
-# Function to find subdomains
-find_subdomains() {
-    local url=$1
-    echo "Finding subdomains for $url..."
-    
-    # Use dig to perform DNS lookup
-    dig "$url" +short > subdomains.txt
-    
-    echo "Subdomains found:"
-    cat subdomains.txt
-}
+TARGETS=()
+while getopts "u:f:w:t:h" opt; do
+  case $opt in
+    u) TARGETS+=("$OPTARG") ;;
+    f) if [[ -f "$OPTARG" ]]; then mapfile -t TARGETS < "$OPTARG"; else echo "Targets file not found: $OPTARG"; exit 1; fi ;;
+    w) WEBHOOK_URL="$OPTARG" ;;
+    t) THREADS="$OPTARG" ;;
+    h) show_help; exit 0 ;;
+    *) show_help; exit 1 ;;
+  esac
+done
 
-# Main function
-main() {
-    local url=$1
-    
-    if [ -z "$url" ]; then
-        echo "Please provide a website URL."
-        exit 1
-    fi
-    
-    echo "Analyzing $url..."
-    
-    find_bugs "$url"
-    find_assets "$url"
-    find_subdomains "$url"
-    
-    echo "Analysis complete."
-}
+require_tools
 
-# Call the main function with the provided URL
-main "$1"
+# Process each target sequentially (could be parallelized carefully)
+for t in "${TARGETS[@]}"; do
+  process_target "$t"
+done
+
+echo "All done. Reports saved under: $OUTDIR"
